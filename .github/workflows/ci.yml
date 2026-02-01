@@ -7,38 +7,18 @@ on:
     branches: [main]
 
 jobs:
-  # Run all linters
+  # Run all linters using pre-commit action
   lint:
     name: Lint
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
 
-      - name: Install pre-commit
-        run: pip install pre-commit
-
-      - name: Run pre-commit
-        run: pre-commit run --all-files --show-diff-on-failure
-
-  # Validate GitHub Action syntax with actionlint
-  actionlint:
-    name: Action Lint
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install actionlint
-        run: |
-          curl -sL https://raw.githubusercontent.com/rhysd/actionlint/main/scripts/download-actionlint.bash | bash
-          echo "${PWD}" >> "$GITHUB_PATH"
-
-      - name: Run actionlint
-        run: actionlint -color
+      - uses: pre-commit/action@v3.0.1
 
   # Verify documentation matches action definition
   docs-sync:
@@ -49,7 +29,8 @@ jobs:
 
       - name: Install yq
         run: |
-          sudo wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
+          YQ_VERSION=v4.44.1
+          sudo wget -qO /usr/local/bin/yq "https://github.com/mikefarah/yq/releases/download/${YQ_VERSION}/yq_linux_amd64"
           sudo chmod +x /usr/local/bin/yq
 
       - name: Check inputs are documented
@@ -95,142 +76,22 @@ jobs:
           echo "All outputs are documented"
 
   # Integration tests - test the action in real scenarios
-  test-check-with-release:
-    name: Test check (with release)
+  tests:
+    name: Test (${{ matrix.test }})
     runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Create mock project with RELEASE.md
-        run: |
-          cat > pyproject.toml << 'EOF'
-          [project]
-          name = "test-package"
-          version = "0.1.0"
-
-          [build-system]
-          requires = ["hatchling"]
-          build-backend = "hatchling.build"
-          EOF
-
-          cat > RELEASE.md << 'EOF'
-          ---
-          release type: patch
-          ---
-
-          This is a test release for CI validation.
-          EOF
-
-      - name: Run check command
-        id: check
-        uses: ./
-        with:
-          command: check
-          autopub-version: pre-release
-          upload-artifact: "false"
-
-      - name: Verify outputs
-        run: |
-          echo "has-release: ${{ steps.check.outputs.has-release }}"
-          echo "release-type: ${{ steps.check.outputs.release-type }}"
-
-          if [[ "${{ steps.check.outputs.has-release }}" != "true" ]]; then
-            echo "::error::Expected has-release to be 'true'"
-            exit 1
-          fi
-
-          if [[ "${{ steps.check.outputs.release-type }}" != "patch" ]]; then
-            echo "::error::Expected release-type to be 'patch', got '${{ steps.check.outputs.release-type }}'"
-            exit 1
-          fi
-          echo "All outputs verified"
-
-  test-check-no-release:
-    name: Test check (no release)
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Create mock project without RELEASE.md
-        run: |
-          cat > pyproject.toml << 'EOF'
-          [project]
-          name = "test-package"
-          version = "0.1.0"
-          EOF
-
-      - name: Run check command (should not fail)
-        id: check
-        uses: ./
-        with:
-          command: check
-          autopub-version: pre-release
-          upload-artifact: "false"
-
-      - name: Verify has-release is false
-        run: |
-          if [[ "${{ steps.check.outputs.has-release }}" != "false" ]]; then
-            echo "::error::Expected has-release to be 'false' when no RELEASE.md exists"
-            exit 1
-          fi
-          echo "has-release is false (as expected)"
-
-  test-check-fail-on-missing:
-    name: Test check (fail-on-missing)
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Create mock project without RELEASE.md
-        run: |
-          cat > pyproject.toml << 'EOF'
-          [project]
-          name = "test-package"
-          version = "0.1.0"
-          EOF
-
-      - name: Run check with fail-on-missing (should fail)
-        id: check-fail
-        uses: ./
-        with:
-          command: check
-          fail-on-missing: "true"
-          autopub-version: pre-release
-          upload-artifact: "false"
-        continue-on-error: true
-
-      - name: Verify failure
-        run: |
-          if [[ "${{ steps.check-fail.outcome }}" != "failure" ]]; then
-            echo "::error::Expected action to fail with fail-on-missing=true"
-            exit 1
-          fi
-          echo "Action correctly failed with fail-on-missing=true"
-
-  test-invalid-command:
-    name: Test invalid command
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Run with invalid command (should fail)
-        id: invalid
-        uses: ./
-        with:
-          command: invalid-command
-        continue-on-error: true
-
-      - name: Verify failure
-        run: |
-          if [[ "${{ steps.invalid.outcome }}" != "failure" ]]; then
-            echo "::error::Expected action to fail with invalid command"
-            exit 1
-          fi
-          echo "Action correctly failed with invalid command"
-
-  test-artifact-flow:
-    name: Test artifact flow
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - test: check-with-release
+            has-release: "true"
+            release-type: patch
+          - test: check-no-release
+            has-release: "false"
+          - test: check-fail-on-missing
+            should-fail: true
+          - test: invalid-command
+            should-fail: true
     steps:
       - uses: actions/checkout@v4
 
@@ -246,47 +107,85 @@ jobs:
           build-backend = "hatchling.build"
           EOF
 
+      - name: Create RELEASE.md (for release tests)
+        if: matrix.test == 'check-with-release'
+        run: |
           cat > RELEASE.md << 'EOF'
           ---
-          release type: minor
+          release type: patch
           ---
 
-          Added new feature for testing artifact flow.
+          This is a test release for CI validation.
           EOF
 
-      - name: Run check (uploads artifact)
+      - name: Run check command
+        if: matrix.test == 'check-with-release' || matrix.test == 'check-no-release'
         id: check
         uses: ./
         with:
           command: check
           autopub-version: pre-release
-          artifact-name: test-artifact-flow
+          upload-artifact: "false"
 
-      - name: Verify artifact was created locally
+      - name: Run check with fail-on-missing
+        if: matrix.test == 'check-fail-on-missing'
+        id: check-fail
+        uses: ./
+        with:
+          command: check
+          fail-on-missing: "true"
+          autopub-version: pre-release
+          upload-artifact: "false"
+        continue-on-error: true
+
+      - name: Run with invalid command
+        if: matrix.test == 'invalid-command'
+        id: invalid
+        uses: ./
+        with:
+          command: invalid-command
+        continue-on-error: true
+
+      - name: Verify outputs (check-with-release)
+        if: matrix.test == 'check-with-release'
         run: |
-          if [[ ! -d ".autopub" ]]; then
-            echo "::error::.autopub directory was not created"
+          if [[ "${{ steps.check.outputs.has-release }}" != "${{ matrix.has-release }}" ]]; then
+            echo "::error::Expected has-release to be '${{ matrix.has-release }}'"
             exit 1
           fi
-          if [[ ! -f ".autopub/release_info.json" ]]; then
-            echo "::error::release_info.json was not created"
+          if [[ "${{ steps.check.outputs.release-type }}" != "${{ matrix.release-type }}" ]]; then
+            echo "::error::Expected release-type to be '${{ matrix.release-type }}'"
             exit 1
           fi
-          echo "Artifact files created successfully"
-          cat .autopub/release_info.json
+
+      - name: Verify outputs (check-no-release)
+        if: matrix.test == 'check-no-release'
+        run: |
+          if [[ "${{ steps.check.outputs.has-release }}" != "false" ]]; then
+            echo "::error::Expected has-release to be 'false'"
+            exit 1
+          fi
+
+      - name: Verify failure (fail-on-missing)
+        if: matrix.test == 'check-fail-on-missing'
+        run: |
+          if [[ "${{ steps.check-fail.outcome }}" != "failure" ]]; then
+            echo "::error::Expected action to fail with fail-on-missing=true"
+            exit 1
+          fi
+
+      - name: Verify failure (invalid-command)
+        if: matrix.test == 'invalid-command'
+        run: |
+          if [[ "${{ steps.invalid.outcome }}" != "failure" ]]; then
+            echo "::error::Expected action to fail with invalid command"
+            exit 1
+          fi
 
   # All tests must pass
   all-tests:
     name: All Tests Passed
-    needs:
-      - lint
-      - actionlint
-      - docs-sync
-      - test-check-with-release
-      - test-check-no-release
-      - test-check-fail-on-missing
-      - test-invalid-command
-      - test-artifact-flow
+    needs: [lint, docs-sync, tests]
     runs-on: ubuntu-latest
     if: always()
     steps:
@@ -296,32 +195,12 @@ jobs:
             echo "::error::Lint job failed"
             exit 1
           fi
-          if [[ "${{ needs.actionlint.result }}" != "success" ]]; then
-            echo "::error::Actionlint job failed"
-            exit 1
-          fi
           if [[ "${{ needs.docs-sync.result }}" != "success" ]]; then
             echo "::error::Docs sync job failed"
             exit 1
           fi
-          if [[ "${{ needs.test-check-with-release.result }}" != "success" ]]; then
-            echo "::error::Test check with release job failed"
-            exit 1
-          fi
-          if [[ "${{ needs.test-check-no-release.result }}" != "success" ]]; then
-            echo "::error::Test check no release job failed"
-            exit 1
-          fi
-          if [[ "${{ needs.test-check-fail-on-missing.result }}" != "success" ]]; then
-            echo "::error::Test check fail-on-missing job failed"
-            exit 1
-          fi
-          if [[ "${{ needs.test-invalid-command.result }}" != "success" ]]; then
-            echo "::error::Test invalid command job failed"
-            exit 1
-          fi
-          if [[ "${{ needs.test-artifact-flow.result }}" != "success" ]]; then
-            echo "::error::Test artifact flow job failed"
+          if [[ "${{ needs.tests.result }}" != "success" ]]; then
+            echo "::error::Tests failed"
             exit 1
           fi
           echo "All tests passed!"

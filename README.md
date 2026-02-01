@@ -46,6 +46,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: "refs/pull/${{ github.event.number }}/merge"
+          # Only checkout the files needed for the check - faster and more secure
           sparse-checkout: |
             RELEASE.md
             pyproject.toml
@@ -91,7 +92,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          token: ${{ secrets.BOT_TOKEN }}
+          token: ${{ secrets.PAT_TOKEN }}
 
       - uses: autopub/autopub-action@v1
         with:
@@ -104,7 +105,7 @@ jobs:
       - uses: autopub/autopub-action@v1
         with:
           command: publish
-          github-token: ${{ secrets.BOT_TOKEN }}
+          github-token: ${{ secrets.PAT_TOKEN }}
 ```
 
 ## Inputs
@@ -142,7 +143,7 @@ Validates the `RELEASE.md` file and prepares release information.
 - Parses the release file and validates the format
 - Creates `.autopub/release_info.json` with release metadata
 - Posts a comment on the PR with the changelog preview (if GitHub plugin enabled)
-- Uploads the `.autopub` artifact for use by subsequent jobs
+- Uploads the `.autopub` artifact for use by subsequent jobs (only when a valid release is found and `upload-artifact` is enabled)
 
 ```yaml
 - uses: autopub/autopub-action@v1
@@ -204,7 +205,7 @@ github-token: ${{ secrets.GITHUB_TOKEN }}
 For pushing commits and creating releases, you'll need a Personal Access Token (PAT) or a GitHub App token with write permissions:
 
 ```yaml
-github-token: ${{ secrets.BOT_TOKEN }}
+github-token: ${{ secrets.PAT_TOKEN }}
 ```
 
 ### PyPI Publishing
@@ -324,29 +325,6 @@ To enforce that all PRs include a `RELEASE.md` file:
 ```
 
 This will fail the workflow if no valid `RELEASE.md` is found, useful for PR checks.
-
-## Migration from Manual uvx Commands
-
-If you're currently using manual `uvx` commands like:
-
-```yaml
-- run: uvx --from autopub==1.0.0a55 --with pygithub autopub check
-```
-
-Replace with:
-
-```yaml
-- uses: autopub/autopub-action@v1
-  with:
-    command: check
-```
-
-The action handles:
-
-- Installing uv
-- Managing autopub versions
-- Setting up environment variables
-- Artifact management between jobs
 
 ## Troubleshooting
 
