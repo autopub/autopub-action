@@ -217,7 +217,6 @@ jobs:
           fi
 
   # Test full publish flow with local PyPI server for each package manager
-  # NOTE: uv publish test requires autopub PR #48 (--index support) to be merged
   test-publish:
     name: Test (publish-${{ matrix.manager }})
     runs-on: ubuntu-latest
@@ -225,7 +224,6 @@ jobs:
       fail-fast: false
       matrix:
         manager: [uv, poetry, pdm]
-    # TODO: Remove continue-on-error once autopub PR #48 is merged
     continue-on-error: ${{ matrix.manager == 'uv' }}
     steps:
       - uses: actions/checkout@v4
