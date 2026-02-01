@@ -364,11 +364,21 @@ jobs:
 
       - name: Initialize git repo (required for autopub)
         run: |
+          # Create a local bare repo to act as a fake "remote"
+          # This allows git push to succeed without actually pushing anywhere
+          mkdir -p /tmp/fake-remote.git
+          git init --bare /tmp/fake-remote.git
+
+          # Initialize the working repo
           git config user.name "Test"
           git config user.email "test@test.com"
           git init
           git add .
           git commit -m "Initial commit"
+
+          # Add fake remote and push initial commit
+          git remote add origin /tmp/fake-remote.git
+          git push -u origin main
 
       - name: Run check
         uses: ./
