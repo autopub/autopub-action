@@ -369,21 +369,18 @@ jobs:
           mkdir -p /tmp/fake-remote.git
           git init --bare /tmp/fake-remote.git
 
-          # Configure git
+          # Remove the shallow checkout and reinitialize as a fresh repo
+          # (shallow clones can't push to bare repos)
+          rm -rf .git
+          git init -b main
           git config user.name "Test"
           git config user.email "test@test.com"
-
-          # Remove existing origin (set by actions/checkout) and add our fake one
-          git remote remove origin
           git remote add origin /tmp/fake-remote.git
 
           # Commit all changes and push to fake remote
           git add .
           git commit -m "Initial commit"
-          git push -u origin HEAD:refs/heads/main
-
-          # Checkout main branch so we're not in detached HEAD
-          git checkout main
+          git push -u origin main
 
       - name: Run check
         uses: ./
