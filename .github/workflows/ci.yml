@@ -225,12 +225,19 @@ jobs:
         image: pypiserver/pypiserver:latest
         ports:
           - 8080:8080
-        options: >-
-          --health-cmd "curl -f http://localhost:8080 || exit 1"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
     steps:
+      - name: Wait for pypiserver to be ready
+        run: |
+          for i in {1..30}; do
+            if curl -s http://localhost:8080 > /dev/null; then
+              echo "pypiserver is ready"
+              exit 0
+            fi
+            echo "Waiting for pypiserver... ($i/30)"
+            sleep 1
+          done
+          echo "pypiserver failed to start"
+          exit 1
       - uses: actions/checkout@v4
 
       - name: Create mock project
