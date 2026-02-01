@@ -89,6 +89,9 @@ jobs:
             should-fail: true
           - test: invalid-command
             should-fail: true
+          - test: full-flow
+            has-release: "true"
+            release-type: minor
     steps:
       - uses: actions/checkout@v4
 
@@ -104,25 +107,56 @@ jobs:
           build-backend = "hatchling.build"
           EOF
 
+          # Create minimal package structure for build test
+          mkdir -p src/test_package
+          echo '__version__ = "0.1.0"' > src/test_package/__init__.py
+
       - name: Create RELEASE.md (for release tests)
-        if: matrix.test == 'check-with-release'
+        if: matrix.test == 'check-with-release' || matrix.test == 'full-flow'
         run: |
           cat > RELEASE.md << 'EOF'
           ---
-          release type: patch
+          release type: ${{ matrix.release-type }}
           ---
 
           This is a test release for CI validation.
           EOF
 
       - name: Run check command
-        if: matrix.test == 'check-with-release' || matrix.test == 'check-no-release'
+        if: matrix.test == 'check-with-release' || matrix.test == 'check-no-release' || matrix.test == 'full-flow'
         id: check
         uses: ./
         with:
           command: check
           autopub-version: pre-release
           upload-artifact: "false"
+
+      - name: Run prepare command (full-flow)
+        if: matrix.test == 'full-flow'
+        uses: ./
+        with:
+          command: prepare
+          autopub-version: pre-release
+          download-artifact: "false"
+
+      - name: Run build command (full-flow)
+        if: matrix.test == 'full-flow'
+        uses: ./
+        with:
+          command: build
+          autopub-version: pre-release
+          download-artifact: "false"
+
+      - name: Verify build artifacts (full-flow)
+        if: matrix.test == 'full-flow'
+        run: |
+          echo "Checking that dist/ was created..."
+          if [[ ! -d "dist" ]]; then
+            echo "::error::dist/ directory was not created"
+            exit 1
+          fi
+          ls -la dist/
+          echo "Build artifacts created successfully"
 
       - name: Run check with fail-on-missing
         if: matrix.test == 'check-fail-on-missing'
@@ -144,7 +178,7 @@ jobs:
         continue-on-error: true
 
       - name: Verify outputs (check-with-release)
-        if: matrix.test == 'check-with-release'
+        if: matrix.test == 'check-with-release' || matrix.test == 'full-flow'
         run: |
           if [[ "${{ steps.check.outputs.has-release }}" != "${{ matrix.has-release }}" ]]; then
             echo "::error::Expected has-release to be '${{ matrix.has-release }}'"
