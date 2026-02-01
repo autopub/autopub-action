@@ -380,7 +380,10 @@ jobs:
           # Commit all changes and push to fake remote
           git add .
           git commit -m "Initial commit"
-          git push -u origin HEAD:main
+          git push -u origin HEAD:refs/heads/main
+
+          # Checkout main branch so we're not in detached HEAD
+          git checkout main
 
       - name: Run check
         uses: ./
