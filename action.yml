@@ -73,7 +73,11 @@ inputs:
 
   publish-repository:
     description: >
-      Custom repository URL for publishing.
+      Named repository for publishing (e.g., "testpypi", "private").
+      Must be configured in pyproject.toml for your package manager:
+      - uv: [[tool.uv.index]] with publish-url
+      - poetry: poetry config repositories.<name>
+      - pdm: [tool.pdm.repository.<name>]
       If not specified, publishes to PyPI.
     required: false
 

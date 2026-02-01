@@ -216,6 +216,118 @@ jobs:
             exit 1
           fi
 
-  # Note: publish command is tested via the full-flow test (check → prepare → build).
-  # Actual publishing to PyPI/TestPyPI requires trusted publisher configuration
-  # and is tested manually or in downstream projects using this action.
+  # Test full publish flow with local PyPI server
+  test-publish:
+    name: Test (publish)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Start pypiserver (no authentication)
+        run: |
+          mkdir -p ~/packages
+          docker run -d --name pypiserver -p 8080:8080 \
+            pypiserver/pypiserver:latest \
+            run -a . -P . /data/packages
+          # Wait for pypiserver to be ready
+          for i in {1..30}; do
+            if curl -s http://localhost:8080 > /dev/null; then
+              echo "pypiserver is ready"
+              break
+            fi
+            echo "Waiting for pypiserver... ($i/30)"
+            sleep 1
+          done
+
+      - name: Create mock project
+        run: |
+          # Use unique package name to avoid conflicts
+          PACKAGE_NAME="test-package-${{ github.run_id }}"
+
+          cat > pyproject.toml << EOF
+          [project]
+          name = "$PACKAGE_NAME"
+          version = "0.1.0"
+
+          [build-system]
+          requires = ["hatchling"]
+          build-backend = "hatchling.build"
+
+          [tool.autopub]
+          plugins = ["uv"]
+
+          # Configure local pypiserver as an explicit index for publishing
+          [[tool.uv.index]]
+          name = "local"
+          url = "http://localhost:8080/simple/"
+          publish-url = "http://localhost:8080/"
+          explicit = true
+          EOF
+
+          mkdir -p "src/${PACKAGE_NAME//-/_}"
+          echo '__version__ = "0.1.0"' > "src/${PACKAGE_NAME//-/_}/__init__.py"
+
+          cat > RELEASE.md << 'EOF'
+          ---
+          release type: patch
+          ---
+
+          Test release for publish flow validation.
+          EOF
+
+      - name: Initialize git repo (required for autopub)
+        run: |
+          git config user.name "Test"
+          git config user.email "test@test.com"
+          git init
+          git add .
+          git commit -m "Initial commit"
+
+      - name: Run check
+        uses: ./
+        with:
+          command: check
+          autopub-version: pre-release
+          upload-artifact: "false"
+
+      - name: Run prepare
+        uses: ./
+        with:
+          command: prepare
+          autopub-version: pre-release
+          download-artifact: "false"
+
+      - name: Run build
+        uses: ./
+        with:
+          command: build
+          autopub-version: pre-release
+          download-artifact: "false"
+
+      - name: Run publish (to local pypiserver)
+        uses: ./
+        env:
+          UV_PUBLISH_USERNAME: ""
+          UV_PUBLISH_PASSWORD: ""
+        with:
+          command: publish
+          autopub-version: pre-release
+          download-artifact: "false"
+          publish-repository: local
+
+      - name: Verify package was published
+        run: |
+          PACKAGE_NAME="test-package-${{ github.run_id }}"
+          echo "Checking if package was published to local PyPI server..."
+
+          # List packages on the server
+          curl -s http://localhost:8080/simple/ | grep -q "${PACKAGE_NAME//-/_}" || {
+            echo "::error::Package was not found on local PyPI server"
+            curl -s http://localhost:8080/simple/
+            exit 1
+          }
+          echo "Package published successfully!"
+
+      - name: Cleanup
+        if: always()
+        run: docker stop pypiserver || true

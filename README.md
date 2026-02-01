@@ -122,7 +122,7 @@ jobs:
 | `upload-artifact` | No | `true` | Auto-upload `.autopub` artifact after check |
 | `download-artifact` | No | `true` | Auto-download `.autopub` artifact before other commands |
 | `artifact-name` | No | `autopub-data` | Name for the artifact |
-| `publish-repository` | No | - | Custom repository URL for publishing |
+| `publish-repository` | No | - | Named repository for publishing (configured in pyproject.toml) |
 | `fail-on-missing` | No | `false` | Fail the action if no valid RELEASE.md found during check |
 
 ## Outputs
@@ -306,12 +306,27 @@ If you need custom artifact handling:
 
 ### Publishing to Custom Repository
 
+To publish to a custom PyPI repository (e.g., a private registry), configure it in your `pyproject.toml`:
+
+```toml
+# For uv-based projects
+[[tool.uv.index]]
+name = "private"
+url = "https://my-pypi-server.com/simple/"
+publish-url = "https://my-pypi-server.com/"
+explicit = true  # Prevents use for dependency resolution
+```
+
+Then reference the repository by name:
+
 ```yaml
 - uses: autopub/autopub-action@v1
   with:
     command: publish
-    publish-repository: "https://my-pypi-server.com/simple/"
+    publish-repository: private
 ```
+
+For Poetry or PDM, configure the repository according to their documentation and use the same name.
 
 ### Requiring RELEASE.md in PRs
 
