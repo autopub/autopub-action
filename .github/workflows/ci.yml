@@ -105,6 +105,9 @@ jobs:
           [build-system]
           requires = ["hatchling"]
           build-backend = "hatchling.build"
+
+          [tool.autopub]
+          plugins = ["uv"]
           EOF
 
           # Create minimal package structure for build test
@@ -243,6 +246,9 @@ jobs:
           [build-system]
           requires = ["hatchling"]
           build-backend = "hatchling.build"
+
+          [tool.autopub]
+          plugins = ["uv"]
           EOF
 
           mkdir -p "src/${PACKAGE_NAME//-/_}"
