@@ -226,7 +226,7 @@ jobs:
         ports:
           - 8080:8080
         options: >-
-          --health-cmd "wget --spider http://localhost:8080 || exit 1"
+          --health-cmd "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8080')\""
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
@@ -312,30 +312,3 @@ jobs:
             exit 1
           }
           echo "Package published successfully!"
-
-  # All tests must pass
-  all-tests:
-    name: All Tests Passed
-    needs: [lint, docs-sync, tests, test-publish]
-    runs-on: ubuntu-latest
-    if: always()
-    steps:
-      - name: Check all jobs passed
-        run: |
-          if [[ "${{ needs.lint.result }}" != "success" ]]; then
-            echo "::error::Lint job failed"
-            exit 1
-          fi
-          if [[ "${{ needs.docs-sync.result }}" != "success" ]]; then
-            echo "::error::Docs sync job failed"
-            exit 1
-          fi
-          if [[ "${{ needs.tests.result }}" != "success" ]]; then
-            echo "::error::Tests failed"
-            exit 1
-          fi
-          if [[ "${{ needs.test-publish.result }}" != "success" ]]; then
-            echo "::error::Publish test failed"
-            exit 1
-          fi
-          echo "All tests passed!"
