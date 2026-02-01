@@ -28,10 +28,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Install yq
-        run: |
-          YQ_VERSION=v4.44.1
-          sudo wget -qO /usr/local/bin/yq "https://github.com/mikefarah/yq/releases/download/${YQ_VERSION}/yq_linux_amd64"
-          sudo chmod +x /usr/local/bin/yq
+        uses: mikefarah/yq@v4
 
       - name: Check inputs are documented
         run: |
