@@ -5,6 +5,7 @@ A GitHub Action for automatic package releases using [autopub](https://github.co
 ## Features
 
 - **Simple interface**: Single action with `check`, `prepare`, `build`, and `publish` commands
+- **Multiple package managers**: Supports uv, Poetry, and PDM
 - **Automatic artifact management**: Seamlessly passes release info between jobs
 - **GitHub integration**: PR comments and GitHub releases out of the box
 - **Flexible publishing**: Supports both PyPI trusted publishing (OIDC) and token-based authentication
@@ -237,7 +238,56 @@ Alternatively, use a PyPI token:
 
 ## Configuration
 
-Configure autopub in your `pyproject.toml`:
+Configure autopub in your `pyproject.toml`. The configuration varies slightly depending on your package manager.
+
+### Using uv (Recommended)
+
+```toml
+[project]
+name = "my-package"
+version = "1.0.0"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.autopub]
+plugins = ["uv"]
+```
+
+### Using Poetry
+
+```toml
+[tool.poetry]
+name = "my-package"
+version = "1.0.0"
+description = "My package"
+authors = ["Your Name <you@example.com>"]
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.autopub]
+plugins = ["poetry"]
+```
+
+### Using PDM
+
+```toml
+[project]
+name = "my-package"
+version = "1.0.0"
+
+[build-system]
+requires = ["pdm-backend"]
+build-backend = "pdm.backend"
+
+[tool.autopub]
+plugins = ["pdm"]
+```
+
+### Additional Configuration
 
 ```toml
 [tool.autopub]
@@ -246,7 +296,7 @@ git-username = "release-bot"
 git-email = "bot@example.com"
 
 # Enable additional plugins
-plugins = ["github"]
+plugins = ["uv", "github"]
 
 # Plugin-specific configuration
 [tool.autopub.plugins.github]
@@ -306,10 +356,12 @@ If you need custom artifact handling:
 
 ### Publishing to Custom Repository
 
-To publish to a custom PyPI repository (e.g., a private registry), configure it in your `pyproject.toml`:
+To publish to a custom PyPI repository (e.g., a private registry), configure it according to your package manager:
+
+#### uv
 
 ```toml
-# For uv-based projects
+# pyproject.toml
 [[tool.uv.index]]
 name = "private"
 url = "https://my-pypi-server.com/simple/"
@@ -317,7 +369,21 @@ publish-url = "https://my-pypi-server.com/"
 explicit = true  # Prevents use for dependency resolution
 ```
 
-Then reference the repository by name:
+#### Poetry
+
+```bash
+# Configure via CLI (or poetry.toml)
+poetry config repositories.private https://my-pypi-server.com/
+```
+
+#### PDM
+
+```bash
+# Configure via CLI
+pdm config repository.private.url https://my-pypi-server.com/
+```
+
+Then reference the repository by name in your workflow:
 
 ```yaml
 - uses: autopub/autopub-action@v1
@@ -325,8 +391,6 @@ Then reference the repository by name:
     command: publish
     publish-repository: private
 ```
-
-For Poetry or PDM, configure the repository according to their documentation and use the same name.
 
 ### Requiring RELEASE.md in PRs
 

@@ -1,5 +1,5 @@
 name: "AutoPub"
-description: "Automatic package release upon pull request merge"
+description: "Automatic package release upon pull request merge. Supports uv, Poetry, and PDM."
 author: "autopub"
 
 branding:
@@ -14,7 +14,7 @@ inputs:
       Available commands:
         check: Validate RELEASE.md file and prepare release info
         prepare: Bump version and update changelog
-        build: Build the package using the configured package manager
+        build: Build the package using the configured package manager (uv, poetry, or pdm)
         publish: Publish to PyPI and create GitHub release
     required: true
 

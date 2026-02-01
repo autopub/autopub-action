@@ -216,12 +216,27 @@ jobs:
             exit 1
           fi
 
-  # Test full publish flow with local PyPI server
+  # Test full publish flow with local PyPI server for each package manager
   test-publish:
-    name: Test (publish)
+    name: Test (publish-${{ matrix.manager }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        manager: [uv, poetry, pdm]
     steps:
       - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+
+      - name: Install package manager
+        run: |
+          if [[ "${{ matrix.manager }}" == "poetry" ]]; then
+            uv tool install poetry
+          elif [[ "${{ matrix.manager }}" == "pdm" ]]; then
+            uv tool install pdm
+          fi
 
       - name: Start pypiserver (no authentication)
         run: |
@@ -239,10 +254,10 @@ jobs:
             sleep 1
           done
 
-      - name: Create mock project
+      - name: Create mock project (uv)
+        if: matrix.manager == 'uv'
         run: |
-          # Use unique package name to avoid conflicts
-          PACKAGE_NAME="test-package-${{ github.run_id }}"
+          PACKAGE_NAME="test-pkg-uv-${{ github.run_id }}"
 
           cat > pyproject.toml << EOF
           [project]
@@ -256,7 +271,6 @@ jobs:
           [tool.autopub]
           plugins = ["uv"]
 
-          # Configure local pypiserver as an explicit index for publishing
           [[tool.uv.index]]
           name = "local"
           url = "http://localhost:8080/simple/"
@@ -272,8 +286,81 @@ jobs:
           release type: patch
           ---
 
-          Test release for publish flow validation.
+          Test release for uv publish flow.
           EOF
+
+      - name: Create mock project (poetry)
+        if: matrix.manager == 'poetry'
+        run: |
+          PACKAGE_NAME="test-pkg-poetry-${{ github.run_id }}"
+
+          cat > pyproject.toml << EOF
+          [project]
+          name = "$PACKAGE_NAME"
+          version = "0.1.0"
+
+          [tool.poetry]
+          name = "$PACKAGE_NAME"
+          version = "0.1.0"
+          description = "Test package"
+          authors = ["Test <test@test.com>"]
+
+          [build-system]
+          requires = ["poetry-core"]
+          build-backend = "poetry.core.masonry.api"
+
+          [tool.autopub]
+          plugins = ["poetry"]
+          EOF
+
+          mkdir -p "src/${PACKAGE_NAME//-/_}"
+          echo '__version__ = "0.1.0"' > "src/${PACKAGE_NAME//-/_}/__init__.py"
+
+          cat > RELEASE.md << 'EOF'
+          ---
+          release type: patch
+          ---
+
+          Test release for poetry publish flow.
+          EOF
+
+          # Configure poetry repository with dummy credentials
+          poetry config repositories.local http://localhost:8080/
+          poetry config http-basic.local user pass
+
+      - name: Create mock project (pdm)
+        if: matrix.manager == 'pdm'
+        run: |
+          PACKAGE_NAME="test-pkg-pdm-${{ github.run_id }}"
+
+          cat > pyproject.toml << EOF
+          [project]
+          name = "$PACKAGE_NAME"
+          version = "0.1.0"
+
+          [build-system]
+          requires = ["pdm-backend"]
+          build-backend = "pdm.backend"
+
+          [tool.autopub]
+          plugins = ["pdm"]
+          EOF
+
+          mkdir -p "src/${PACKAGE_NAME//-/_}"
+          echo '__version__ = "0.1.0"' > "src/${PACKAGE_NAME//-/_}/__init__.py"
+
+          cat > RELEASE.md << 'EOF'
+          ---
+          release type: patch
+          ---
+
+          Test release for pdm publish flow.
+          EOF
+
+          # Configure pdm repository with dummy credentials
+          pdm config repository.local.url http://localhost:8080/
+          pdm config repository.local.username user
+          pdm config repository.local.password pass
 
       - name: Initialize git repo (required for autopub)
         run: |
@@ -307,6 +394,7 @@ jobs:
       - name: Run publish (to local pypiserver)
         uses: ./
         env:
+          # Disable authentication for uv
           UV_PUBLISH_USERNAME: ""
           UV_PUBLISH_PASSWORD: ""
         with:
@@ -317,7 +405,7 @@ jobs:
 
       - name: Verify package was published
         run: |
-          PACKAGE_NAME="test-package-${{ github.run_id }}"
+          PACKAGE_NAME="test-pkg-${{ matrix.manager }}-${{ github.run_id }}"
           echo "Checking if package was published to local PyPI server..."
 
           # List packages on the server
