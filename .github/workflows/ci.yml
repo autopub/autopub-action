@@ -213,10 +213,104 @@ jobs:
             exit 1
           fi
 
+  # Test full publish flow with local PyPI server
+  test-publish:
+    name: Test (publish)
+    runs-on: ubuntu-latest
+    services:
+      pypiserver:
+        image: pypiserver/pypiserver:latest
+        ports:
+          - 8080:8080
+        options: >-
+          --health-cmd "wget --spider http://localhost:8080 || exit 1"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Create mock project
+        run: |
+          # Use unique package name to avoid conflicts
+          PACKAGE_NAME="test-package-${{ github.run_id }}"
+
+          cat > pyproject.toml << EOF
+          [project]
+          name = "$PACKAGE_NAME"
+          version = "0.1.0"
+
+          [build-system]
+          requires = ["hatchling"]
+          build-backend = "hatchling.build"
+          EOF
+
+          mkdir -p "src/${PACKAGE_NAME//-/_}"
+          echo '__version__ = "0.1.0"' > "src/${PACKAGE_NAME//-/_}/__init__.py"
+
+          cat > RELEASE.md << 'EOF'
+          ---
+          release type: patch
+          ---
+
+          Test release for publish flow validation.
+          EOF
+
+      - name: Initialize git repo (required for publish)
+        run: |
+          git config user.name "Test"
+          git config user.email "test@test.com"
+          git init
+          git add .
+          git commit -m "Initial commit"
+
+      - name: Run check
+        uses: ./
+        with:
+          command: check
+          autopub-version: pre-release
+          upload-artifact: "false"
+
+      - name: Run prepare
+        uses: ./
+        with:
+          command: prepare
+          autopub-version: pre-release
+          download-artifact: "false"
+
+      - name: Run build
+        uses: ./
+        with:
+          command: build
+          autopub-version: pre-release
+          download-artifact: "false"
+
+      - name: Run publish (to local pypiserver)
+        uses: ./
+        with:
+          command: publish
+          autopub-version: pre-release
+          download-artifact: "false"
+          publish-repository: "http://localhost:8080"
+          pypi-token: "dummy-token"
+
+      - name: Verify package was published
+        run: |
+          PACKAGE_NAME="test-package-${{ github.run_id }}"
+          echo "Checking if package was published to local PyPI server..."
+
+          # List packages on the server
+          curl -s http://localhost:8080/simple/ | grep -q "${PACKAGE_NAME//-/_}" || {
+            echo "::error::Package was not found on local PyPI server"
+            curl -s http://localhost:8080/simple/
+            exit 1
+          }
+          echo "Package published successfully!"
+
   # All tests must pass
   all-tests:
     name: All Tests Passed
-    needs: [lint, docs-sync, tests]
+    needs: [lint, docs-sync, tests, test-publish]
     runs-on: ubuntu-latest
     if: always()
     steps:
@@ -232,6 +326,10 @@ jobs:
           fi
           if [[ "${{ needs.tests.result }}" != "success" ]]; then
             echo "::error::Tests failed"
+            exit 1
+          fi
+          if [[ "${{ needs.test-publish.result }}" != "success" ]]; then
+            echo "::error::Publish test failed"
             exit 1
           fi
           echo "All tests passed!"
