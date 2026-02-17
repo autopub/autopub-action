@@ -406,6 +406,9 @@ jobs:
 
       - name: Run publish (to local pypiserver)
         uses: ./
+        env:
+          UV_PUBLISH_USERNAME: ${{ matrix.manager == 'uv' && 'user' || '' }}
+          UV_PUBLISH_PASSWORD: ${{ matrix.manager == 'uv' && 'pass' || '' }}
         with:
           command: publish
           autopub-version: pre-release
