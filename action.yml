@@ -159,6 +159,17 @@ runs:
         AUTOPUB_FAIL_ON_MISSING: ${{ inputs.fail-on-missing }}
         UV_PUBLISH_TOKEN: ${{ inputs.pypi-token }}
       run: |
+        # Avoid passing empty publish credentials to uv
+        if [[ -z "${UV_PUBLISH_TOKEN:-}" ]]; then
+          unset UV_PUBLISH_TOKEN
+        fi
+        if [[ -z "${UV_PUBLISH_USERNAME:-}" ]]; then
+          unset UV_PUBLISH_USERNAME
+        fi
+        if [[ -z "${UV_PUBLISH_PASSWORD:-}" ]]; then
+          unset UV_PUBLISH_PASSWORD
+        fi
+
         # Build uvx command
         UVX_CMD="uvx $AUTOPUB_UVX_ARGS --with pygithub autopub"
 

@@ -406,10 +406,6 @@ jobs:
 
       - name: Run publish (to local pypiserver)
         uses: ./
-        env:
-          # Disable authentication for uv
-          UV_PUBLISH_USERNAME: ""
-          UV_PUBLISH_PASSWORD: ""
         with:
           command: publish
           autopub-version: pre-release
