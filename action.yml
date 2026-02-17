@@ -1,0 +1,259 @@
+name: "AutoPub"
+description: "Automatic package release upon pull request merge. Supports uv, Poetry, and PDM."
+author: "autopub"
+
+branding:
+  icon: "package"
+  color: "purple"
+
+inputs:
+  command:
+    description: >
+      The autopub command to run.
+
+      Available commands:
+        check: Validate RELEASE.md file and prepare release info
+        prepare: Bump version and update changelog
+        build: Build the package using the configured package manager (uv, poetry, or pdm)
+        publish: Publish to PyPI and create GitHub release
+    required: true
+
+  github-token:
+    description: >
+      GitHub token for PR comments and creating releases.
+      Required for the GitHub plugin features (PR comments, GitHub releases).
+    default: ${{ github.token }}
+
+  pypi-token:
+    description: >
+      PyPI token for publishing packages.
+      Alternative to trusted publishing (OIDC).
+      If not provided, trusted publishing will be used.
+    required: false
+
+  autopub-version:
+    description: >
+      The version of autopub to use.
+
+      Available options:
+        latest: Use the latest stable release (default)
+        pre-release: Use the latest pre-release version
+        <version>: Use a specific version (e.g., "1.0.0")
+    default: "latest"
+
+  git-username:
+    description: "Git username for release commits"
+    default: "autopub"
+
+  git-email:
+    description: "Git email for release commits"
+    default: "autopub@autopub"
+
+  extra-plugins:
+    description: >
+      Additional autopub plugins to load (comma-separated).
+      Example: "my_plugin,another_plugin"
+    required: false
+
+  upload-artifact:
+    description: >
+      Automatically upload .autopub artifact after 'check' command.
+      Set to 'false' to manage artifacts manually.
+    default: "true"
+
+  download-artifact:
+    description: >
+      Automatically download .autopub artifact before 'prepare', 'build', or 'publish' commands.
+      Set to 'false' to manage artifacts manually.
+    default: "true"
+
+  artifact-name:
+    description: "Name for the .autopub artifact"
+    default: "autopub-data"
+
+  publish-repository:
+    description: >
+      Named repository for publishing (e.g., "testpypi", "private").
+      Must be configured in pyproject.toml for your package manager:
+      - uv: [[tool.uv.index]] with publish-url
+      - poetry: poetry config repositories.<name>
+      - pdm: [tool.pdm.repository.<name>]
+      If not specified, publishes to PyPI.
+    required: false
+
+  fail-on-missing:
+    description: >
+      Fail the action if no valid RELEASE.md is found during 'check'.
+      Set to 'true' for PR workflows where a release file is required.
+    default: "false"
+
+outputs:
+  has-release:
+    description: "'true' if a valid RELEASE.md was found, 'false' otherwise"
+    value: ${{ steps.run-autopub.outputs.has_release }}
+
+  version:
+    description: "The computed release version (available after 'prepare' command)"
+    value: ${{ steps.release-info.outputs.version }}
+
+  release-type:
+    description: "The release type from RELEASE.md (major, minor, or patch)"
+    value: ${{ steps.release-info.outputs.release_type }}
+
+  release-notes:
+    description: "The release notes from RELEASE.md"
+    value: ${{ steps.release-info.outputs.release_notes }}
+
+runs:
+  using: "composite"
+  steps:
+    # Step 1: Validate inputs
+    - name: Validate inputs
+      shell: bash
+      run: |
+        VALID_COMMANDS="check prepare build publish"
+        if [[ ! " $VALID_COMMANDS " =~ " ${{ inputs.command }} " ]]; then
+          echo "::error::Invalid command '${{ inputs.command }}'. Must be one of: $VALID_COMMANDS"
+          exit 1
+        fi
+
+    # Step 2: Install uv
+    - name: Install uv
+      uses: astral-sh/setup-uv@v7
+
+    # Step 3: Determine autopub version spec
+    - name: Determine autopub version
+      id: autopub-version
+      shell: bash
+      run: |
+        VERSION="${{ inputs.autopub-version }}"
+        if [[ "$VERSION" == "latest" ]]; then
+          echo "uvx_args=--from autopub" >> $GITHUB_OUTPUT
+        elif [[ "$VERSION" == "pre-release" ]]; then
+          echo "uvx_args=--from autopub --prerelease=allow" >> $GITHUB_OUTPUT
+        else
+          echo "uvx_args=--from autopub==$VERSION" >> $GITHUB_OUTPUT
+        fi
+
+    # Step 4: Download artifact (for prepare/build/publish)
+    - name: Download .autopub artifact
+      if: inputs.command != 'check' && inputs.download-artifact == 'true'
+      uses: actions/download-artifact@v4
+      with:
+        name: ${{ inputs.artifact-name }}
+        path: .
+      continue-on-error: true
+
+    # Step 5: Run autopub command
+    - name: Run autopub ${{ inputs.command }}
+      id: run-autopub
+      shell: bash
+      env:
+        GITHUB_TOKEN: ${{ inputs.github-token }}
+        GIT_USERNAME: ${{ inputs.git-username }}
+        GIT_EMAIL: ${{ inputs.git-email }}
+        AUTOPUB_UVX_ARGS: ${{ steps.autopub-version.outputs.uvx_args }}
+        AUTOPUB_COMMAND: ${{ inputs.command }}
+        AUTOPUB_EXTRA_PLUGINS: ${{ inputs.extra-plugins }}
+        AUTOPUB_PUBLISH_REPOSITORY: ${{ inputs.publish-repository }}
+        AUTOPUB_FAIL_ON_MISSING: ${{ inputs.fail-on-missing }}
+        UV_PUBLISH_TOKEN: ${{ inputs.pypi-token }}
+      run: |
+        # Avoid passing empty publish credentials to uv
+        if [[ -z "${UV_PUBLISH_TOKEN:-}" ]]; then
+          unset UV_PUBLISH_TOKEN
+        fi
+        if [[ -z "${UV_PUBLISH_USERNAME:-}" ]]; then
+          unset UV_PUBLISH_USERNAME
+        fi
+        if [[ -z "${UV_PUBLISH_PASSWORD:-}" ]]; then
+          unset UV_PUBLISH_PASSWORD
+        fi
+
+        # Build uvx command
+        UVX_CMD="uvx $AUTOPUB_UVX_ARGS --with pygithub autopub"
+
+        # Build command arguments
+        CMD_ARGS=""
+        if [[ "$AUTOPUB_COMMAND" == "publish" && -n "$AUTOPUB_PUBLISH_REPOSITORY" ]]; then
+          CMD_ARGS="--repository $AUTOPUB_PUBLISH_REPOSITORY"
+        fi
+
+        echo "::group::Running autopub $AUTOPUB_COMMAND"
+        echo "Command: $UVX_CMD $AUTOPUB_COMMAND $CMD_ARGS"
+
+        # Run the command and capture exit code
+        set +e
+        $UVX_CMD $AUTOPUB_COMMAND $CMD_ARGS
+        EXIT_CODE=$?
+        set -e
+
+        echo "::endgroup::"
+
+        # Handle check command specially - it may fail if no RELEASE.md
+        if [[ "$AUTOPUB_COMMAND" == "check" ]]; then
+          if [[ $EXIT_CODE -eq 0 ]]; then
+            echo "has_release=true" >> $GITHUB_OUTPUT
+            echo "::notice::Valid RELEASE.md found"
+          else
+            echo "has_release=false" >> $GITHUB_OUTPUT
+            if [[ "$AUTOPUB_FAIL_ON_MISSING" == "true" ]]; then
+              echo "::error::No valid RELEASE.md found (fail-on-missing is enabled)"
+              exit 1
+            else
+              echo "::notice::No valid RELEASE.md found"
+              exit 0
+            fi
+          fi
+        else
+          # For other commands, propagate the exit code
+          if [[ $EXIT_CODE -ne 0 ]]; then
+            echo "::error::autopub $AUTOPUB_COMMAND failed with exit code $EXIT_CODE"
+            exit $EXIT_CODE
+          fi
+        fi
+
+    # Step 6: Extract release info from artifact
+    - name: Extract release info
+      id: release-info
+      if: always()
+      shell: bash
+      run: |
+        if [[ -f ".autopub/release_info.json" ]]; then
+          echo "::group::Release Info"
+          cat .autopub/release_info.json
+          echo ""
+          echo "::endgroup::"
+
+          # Extract fields using jq (available on GitHub runners)
+          VERSION=$(jq -r '.version // empty' .autopub/release_info.json)
+          RELEASE_TYPE=$(jq -r '.release_type // empty' .autopub/release_info.json)
+
+          # Release notes need special handling for multiline
+          RELEASE_NOTES=$(jq -r '.release_notes // empty' .autopub/release_info.json)
+
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "release_type=$RELEASE_TYPE" >> $GITHUB_OUTPUT
+
+          # Use delimiter for multiline output
+          {
+            echo "release_notes<<EOF"
+            echo "$RELEASE_NOTES"
+            echo "EOF"
+          } >> $GITHUB_OUTPUT
+
+          echo "::notice::Release type: $RELEASE_TYPE, Version: $VERSION"
+        else
+          echo "::debug::No .autopub/release_info.json found"
+        fi
+
+    # Step 7: Upload artifact (after successful check)
+    - name: Upload .autopub artifact
+      if: inputs.command == 'check' && steps.run-autopub.outputs.has_release == 'true' && inputs.upload-artifact == 'true'
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ inputs.artifact-name }}
+        path: .autopub
+        include-hidden-files: true
+        if-no-files-found: error
+        retention-days: 1

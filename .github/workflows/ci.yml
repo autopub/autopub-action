@@ -1,0 +1,433 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  # Run all linters using pre-commit action
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: pre-commit/action@v3.0.1
+
+  # Verify documentation matches action definition
+  docs-sync:
+    name: Documentation Sync
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install yq
+        uses: mikefarah/yq@v4
+
+      - name: Check inputs are documented
+        run: |
+          echo "Checking that all action inputs are documented in README.md..."
+
+          # Get all input names from action.yml
+          INPUTS=$(yq e '.inputs | keys | .[]' action.yml)
+
+          MISSING=""
+          for input in $INPUTS; do
+            # Check if input is mentioned in README (in the inputs table)
+            if ! grep -q "| \`$input\`" README.md; then
+              MISSING="$MISSING $input"
+            fi
+          done
+
+          if [[ -n "$MISSING" ]]; then
+            echo "::error::The following inputs are not documented in README.md:$MISSING"
+            exit 1
+          fi
+          echo "All inputs are documented"
+
+      - name: Check outputs are documented
+        run: |
+          echo "Checking that all action outputs are documented in README.md..."
+
+          # Get all output names from action.yml
+          OUTPUTS=$(yq e '.outputs | keys | .[]' action.yml)
+
+          MISSING=""
+          for output in $OUTPUTS; do
+            # Check if output is mentioned in README (in the outputs table)
+            if ! grep -q "| \`$output\`" README.md; then
+              MISSING="$MISSING $output"
+            fi
+          done
+
+          if [[ -n "$MISSING" ]]; then
+            echo "::error::The following outputs are not documented in README.md:$MISSING"
+            exit 1
+          fi
+          echo "All outputs are documented"
+
+  # Integration tests - test the action in real scenarios
+  tests:
+    name: Test (${{ matrix.test }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - test: check-with-release
+            has-release: "true"
+            release-type: patch
+          - test: check-no-release
+            has-release: "false"
+          - test: check-fail-on-missing
+            should-fail: true
+          - test: invalid-command
+            should-fail: true
+          - test: full-flow
+            has-release: "true"
+            release-type: minor
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Create mock project
+        run: |
+          cat > pyproject.toml << 'EOF'
+          [project]
+          name = "test-package"
+          version = "0.1.0"
+
+          [build-system]
+          requires = ["hatchling"]
+          build-backend = "hatchling.build"
+
+          [tool.autopub]
+          plugins = ["uv"]
+          EOF
+
+          # Create minimal package structure for build test
+          mkdir -p src/test_package
+          echo '__version__ = "0.1.0"' > src/test_package/__init__.py
+
+      - name: Create RELEASE.md (for release tests)
+        if: matrix.test == 'check-with-release' || matrix.test == 'full-flow'
+        run: |
+          cat > RELEASE.md << 'EOF'
+          ---
+          release type: ${{ matrix.release-type }}
+          ---
+
+          This is a test release for CI validation.
+          EOF
+
+      - name: Run check command
+        if: matrix.test == 'check-with-release' || matrix.test == 'check-no-release' || matrix.test == 'full-flow'
+        id: check
+        uses: ./
+        with:
+          command: check
+          autopub-version: pre-release
+          upload-artifact: "false"
+
+      - name: Run prepare command (full-flow)
+        if: matrix.test == 'full-flow'
+        uses: ./
+        with:
+          command: prepare
+          autopub-version: pre-release
+          download-artifact: "false"
+
+      - name: Run build command (full-flow)
+        if: matrix.test == 'full-flow'
+        uses: ./
+        with:
+          command: build
+          autopub-version: pre-release
+          download-artifact: "false"
+
+      - name: Verify build artifacts (full-flow)
+        if: matrix.test == 'full-flow'
+        run: |
+          echo "Checking that dist/ was created..."
+          if [[ ! -d "dist" ]]; then
+            echo "::error::dist/ directory was not created"
+            exit 1
+          fi
+          ls -la dist/
+          echo "Build artifacts created successfully"
+
+      - name: Run check with fail-on-missing
+        if: matrix.test == 'check-fail-on-missing'
+        id: check-fail
+        uses: ./
+        with:
+          command: check
+          fail-on-missing: "true"
+          autopub-version: pre-release
+          upload-artifact: "false"
+        continue-on-error: true
+
+      - name: Run with invalid command
+        if: matrix.test == 'invalid-command'
+        id: invalid
+        uses: ./
+        with:
+          command: invalid-command
+        continue-on-error: true
+
+      - name: Verify outputs (check-with-release)
+        if: matrix.test == 'check-with-release' || matrix.test == 'full-flow'
+        run: |
+          if [[ "${{ steps.check.outputs.has-release }}" != "${{ matrix.has-release }}" ]]; then
+            echo "::error::Expected has-release to be '${{ matrix.has-release }}'"
+            exit 1
+          fi
+          if [[ "${{ steps.check.outputs.release-type }}" != "${{ matrix.release-type }}" ]]; then
+            echo "::error::Expected release-type to be '${{ matrix.release-type }}'"
+            exit 1
+          fi
+
+      - name: Verify outputs (check-no-release)
+        if: matrix.test == 'check-no-release'
+        run: |
+          if [[ "${{ steps.check.outputs.has-release }}" != "false" ]]; then
+            echo "::error::Expected has-release to be 'false'"
+            exit 1
+          fi
+
+      - name: Verify failure (fail-on-missing)
+        if: matrix.test == 'check-fail-on-missing'
+        run: |
+          if [[ "${{ steps.check-fail.outcome }}" != "failure" ]]; then
+            echo "::error::Expected action to fail with fail-on-missing=true"
+            exit 1
+          fi
+
+      - name: Verify failure (invalid-command)
+        if: matrix.test == 'invalid-command'
+        run: |
+          if [[ "${{ steps.invalid.outcome }}" != "failure" ]]; then
+            echo "::error::Expected action to fail with invalid command"
+            exit 1
+          fi
+
+  # Test full publish flow with local PyPI server for each package manager
+  test-publish:
+    name: Test (publish-${{ matrix.manager }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        manager: [uv, poetry, pdm]
+    continue-on-error: ${{ matrix.manager == 'uv' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+
+      - name: Install package manager
+        run: |
+          if [[ "${{ matrix.manager }}" == "poetry" ]]; then
+            uv tool install poetry
+          elif [[ "${{ matrix.manager }}" == "pdm" ]]; then
+            uv tool install pdm
+          fi
+
+      - name: Start pypiserver (no authentication)
+        run: |
+          mkdir -p ~/packages
+          docker run -d --name pypiserver -p 8080:8080 \
+            pypiserver/pypiserver:latest \
+            run -a . -P . /data/packages
+          # Wait for pypiserver to be ready
+          for i in {1..30}; do
+            if curl -s http://localhost:8080 > /dev/null; then
+              echo "pypiserver is ready"
+              break
+            fi
+            echo "Waiting for pypiserver... ($i/30)"
+            sleep 1
+          done
+
+      - name: Create mock project (uv)
+        if: matrix.manager == 'uv'
+        run: |
+          PACKAGE_NAME="test-pkg-uv-${{ github.run_id }}"
+
+          cat > pyproject.toml << EOF
+          [project]
+          name = "$PACKAGE_NAME"
+          version = "0.1.0"
+
+          [build-system]
+          requires = ["hatchling"]
+          build-backend = "hatchling.build"
+
+          [tool.autopub]
+          plugins = ["uv"]
+
+          [[tool.uv.index]]
+          name = "local"
+          url = "http://localhost:8080/simple/"
+          publish-url = "http://localhost:8080/"
+          explicit = true
+          EOF
+
+          mkdir -p "src/${PACKAGE_NAME//-/_}"
+          echo '__version__ = "0.1.0"' > "src/${PACKAGE_NAME//-/_}/__init__.py"
+
+          cat > RELEASE.md << 'EOF'
+          ---
+          release type: patch
+          ---
+
+          Test release for uv publish flow.
+          EOF
+
+      - name: Create mock project (poetry)
+        if: matrix.manager == 'poetry'
+        run: |
+          PACKAGE_NAME="test-pkg-poetry-${{ github.run_id }}"
+
+          cat > pyproject.toml << EOF
+          [project]
+          name = "$PACKAGE_NAME"
+          version = "0.1.0"
+
+          [tool.poetry]
+          name = "$PACKAGE_NAME"
+          version = "0.1.0"
+          description = "Test package"
+          authors = ["Test <test@test.com>"]
+
+          [build-system]
+          requires = ["poetry-core"]
+          build-backend = "poetry.core.masonry.api"
+
+          [tool.autopub]
+          plugins = ["poetry"]
+          EOF
+
+          mkdir -p "src/${PACKAGE_NAME//-/_}"
+          echo '__version__ = "0.1.0"' > "src/${PACKAGE_NAME//-/_}/__init__.py"
+
+          cat > RELEASE.md << 'EOF'
+          ---
+          release type: patch
+          ---
+
+          Test release for poetry publish flow.
+          EOF
+
+          # Configure poetry repository with dummy credentials
+          poetry config repositories.local http://localhost:8080/
+          poetry config http-basic.local user pass
+
+      - name: Create mock project (pdm)
+        if: matrix.manager == 'pdm'
+        run: |
+          PACKAGE_NAME="test-pkg-pdm-${{ github.run_id }}"
+
+          cat > pyproject.toml << EOF
+          [project]
+          name = "$PACKAGE_NAME"
+          version = "0.1.0"
+
+          [build-system]
+          requires = ["pdm-backend"]
+          build-backend = "pdm.backend"
+
+          [tool.autopub]
+          plugins = ["pdm"]
+          EOF
+
+          mkdir -p "src/${PACKAGE_NAME//-/_}"
+          echo '__version__ = "0.1.0"' > "src/${PACKAGE_NAME//-/_}/__init__.py"
+
+          cat > RELEASE.md << 'EOF'
+          ---
+          release type: patch
+          ---
+
+          Test release for pdm publish flow.
+          EOF
+
+          # Configure pdm repository with dummy credentials
+          pdm config repository.local.url http://localhost:8080/
+          pdm config repository.local.username user
+          pdm config repository.local.password pass
+
+      - name: Initialize git repo (required for autopub)
+        run: |
+          # Create a local bare repo to act as a fake "remote"
+          # This allows git push to succeed without actually pushing anywhere
+          mkdir -p /tmp/fake-remote.git
+          git init --bare /tmp/fake-remote.git
+
+          # Remove the shallow checkout and reinitialize as a fresh repo
+          # (shallow clones can't push to bare repos)
+          rm -rf .git
+          git init -b main
+          git config user.name "Test"
+          git config user.email "test@test.com"
+          git remote add origin /tmp/fake-remote.git
+
+          # Commit all changes and push to fake remote
+          git add .
+          git commit -m "Initial commit"
+          git push -u origin main
+
+      - name: Run check
+        uses: ./
+        with:
+          command: check
+          autopub-version: pre-release
+          upload-artifact: "false"
+
+      - name: Run prepare
+        uses: ./
+        with:
+          command: prepare
+          autopub-version: pre-release
+          download-artifact: "false"
+
+      - name: Run build
+        uses: ./
+        with:
+          command: build
+          autopub-version: pre-release
+          download-artifact: "false"
+
+      - name: Run publish (to local pypiserver)
+        uses: ./
+        env:
+          UV_PUBLISH_USERNAME: ${{ matrix.manager == 'uv' && 'user' || '' }}
+          UV_PUBLISH_PASSWORD: ${{ matrix.manager == 'uv' && 'pass' || '' }}
+        with:
+          command: publish
+          autopub-version: pre-release
+          download-artifact: "false"
+          publish-repository: local
+
+      - name: Verify package was published
+        run: |
+          PACKAGE_NAME="test-pkg-${{ matrix.manager }}-${{ github.run_id }}"
+          echo "Checking if package was published to local PyPI server..."
+
+          # List packages on the server (pypiserver uses hyphenated names)
+          curl -s http://localhost:8080/simple/ | grep -q "$PACKAGE_NAME" || {
+            echo "::error::Package was not found on local PyPI server"
+            curl -s http://localhost:8080/simple/
+            exit 1
+          }
+          echo "Package published successfully!"
+
+      - name: Cleanup
+        if: always()
+        run: docker stop pypiserver || true
