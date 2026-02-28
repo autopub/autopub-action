@@ -141,7 +141,7 @@ runs:
       uses: actions/download-artifact@v4
       with:
         name: ${{ inputs.artifact-name }}
-        path: .
+        path: .autopub
       continue-on-error: true
 
     # Step 5: Run autopub command
