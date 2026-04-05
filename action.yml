@@ -138,7 +138,7 @@ runs:
     # Step 4: Download artifact (for prepare/build/publish)
     - name: Download .autopub artifact
       if: inputs.command != 'check' && inputs.download-artifact == 'true'
-      uses: actions/download-artifact@v4
+      uses: actions/download-artifact@v8
       with:
         name: ${{ inputs.artifact-name }}
         path: .autopub
@@ -250,7 +250,7 @@ runs:
     # Step 7: Upload artifact (after successful check)
     - name: Upload .autopub artifact
       if: inputs.command == 'check' && steps.run-autopub.outputs.has_release == 'true' && inputs.upload-artifact == 'true'
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v7
       with:
         name: ${{ inputs.artifact-name }}
         path: .autopub
