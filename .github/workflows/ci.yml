@@ -144,6 +144,7 @@ jobs:
           command: check
           autopub-version: pre-release
           extra-plugins: "not-a-real-autopub-plugin-for-ci"
+          fail-on-missing: "true"
           upload-artifact: "false"
 
       - name: Run prepare command (full-flow)
