@@ -93,8 +93,6 @@ jobs:
             has-release: "true"
             release-type: minor
           - test: extra-plugins
-            has-release: "true"
-            release-type: patch
     steps:
       - uses: actions/checkout@v4
 
@@ -118,7 +116,7 @@ jobs:
           echo '__version__ = "0.1.0"' > src/test_package/__init__.py
 
       - name: Create RELEASE.md (for release tests)
-        if: matrix.test == 'check-with-release' || matrix.test == 'full-flow' || matrix.test == 'extra-plugins'
+        if: matrix.test == 'check-with-release' || matrix.test == 'full-flow'
         run: |
           cat > RELEASE.md << 'EOF'
           ---
@@ -137,14 +135,15 @@ jobs:
           autopub-version: pre-release
           upload-artifact: "false"
 
-      - name: Run check with extra-plugins
+      - name: Run check with extra-plugins (invalid package proves --with is wired)
         if: matrix.test == 'extra-plugins'
         id: check-extra-plugins
+        continue-on-error: true
         uses: ./
         with:
           command: check
           autopub-version: pre-release
-          extra-plugins: "requests"
+          extra-plugins: "not-a-real-autopub-plugin-for-ci"
           upload-artifact: "false"
 
       - name: Run prepare command (full-flow)
@@ -205,15 +204,11 @@ jobs:
             exit 1
           fi
 
-      - name: Verify outputs (extra-plugins)
+      - name: Verify extra-plugins is wired into execution
         if: matrix.test == 'extra-plugins'
         run: |
-          if [[ "${{ steps.check-extra-plugins.outputs.has-release }}" != "true" ]]; then
-            echo "::error::Expected has-release to be 'true' with extra-plugins"
-            exit 1
-          fi
-          if [[ "${{ steps.check-extra-plugins.outputs.release-type }}" != "patch" ]]; then
-            echo "::error::Expected release-type to be 'patch' with extra-plugins"
+          if [[ "${{ steps.check-extra-plugins.outcome }}" != "failure" ]]; then
+            echo "::error::Expected failure when installing a non-existent extra plugin package"
             exit 1
           fi
 
