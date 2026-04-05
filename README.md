@@ -426,8 +426,8 @@ a `--with` argument to `uvx`, so full pip dependency specs are supported.
   with:
     command: check
     extra-plugins: |
-      strawberry-autopub-plugins @ git+https://github.com/org/repo.git@main
-      another-plugin>=1.0.0
+      autopub-my-plugin @ git+https://github.com/org/repo.git@main
+      autopub-another-plugin>=1.0.0
 ```
 
 **Plugin environment variables:**
@@ -438,10 +438,10 @@ through the `env` block on the action step:
 ```yaml
 - uses: autopub/autopub-action@v1
   env:
-    TYPEFULLY_API_KEY: ${{ secrets.TYPEFULLY_API_KEY }}
+    MY_PLUGIN_API_KEY: ${{ secrets.MY_PLUGIN_API_KEY }}
   with:
     command: publish
-    extra-plugins: "strawberry-autopub-plugins"
+    extra-plugins: "autopub-my-plugin"
 ```
 
 Environment variables set at the step, job, or workflow level are all available to plugins
