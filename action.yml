@@ -51,8 +51,10 @@ inputs:
 
   extra-plugins:
     description: >
-      Additional autopub plugins to load (comma-separated).
-      Example: "my_plugin,another_plugin"
+      Additional Python packages to install for autopub plugins.
+      Supports full pip dependency specs including git URLs.
+      Use comma-separated values or multiline YAML strings.
+      Each entry is passed as a --with argument to uvx.
     required: false
 
   upload-artifact:
@@ -170,21 +172,41 @@ runs:
           unset UV_PUBLISH_PASSWORD
         fi
 
-        # Build uvx command
-        UVX_CMD="uvx $AUTOPUB_UVX_ARGS --with pygithub autopub"
+        # Build uvx command as array for proper quoting of plugin specs
+        read -ra UVX_BASE_ARGS <<< "$AUTOPUB_UVX_ARGS"
+        UVX_CMD=(uvx "${UVX_BASE_ARGS[@]}" --with pygithub)
+
+        # Parse extra plugins into --with flags
+        if [[ -n "${AUTOPUB_EXTRA_PLUGINS:-}" ]]; then
+          # If input contains newlines, split on newlines (preserves commas in pip extras)
+          # Otherwise split on commas for backward compat
+          if [[ "$AUTOPUB_EXTRA_PLUGINS" == *$'\n'* ]]; then
+            DELIMITED="$AUTOPUB_EXTRA_PLUGINS"
+          else
+            DELIMITED="$(echo "$AUTOPUB_EXTRA_PLUGINS" | tr ',' '\n')"
+          fi
+          while IFS= read -r plugin; do
+            plugin="$(echo "$plugin" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+            if [[ -n "$plugin" ]]; then
+              UVX_CMD+=(--with "$plugin")
+            fi
+          done <<< "$DELIMITED"
+        fi
+
+        UVX_CMD+=(autopub)
 
         # Build command arguments
-        CMD_ARGS=""
-        if [[ "$AUTOPUB_COMMAND" == "publish" && -n "$AUTOPUB_PUBLISH_REPOSITORY" ]]; then
-          CMD_ARGS="--repository $AUTOPUB_PUBLISH_REPOSITORY"
+        CMD_ARGS=()
+        if [[ "$AUTOPUB_COMMAND" == "publish" && -n "${AUTOPUB_PUBLISH_REPOSITORY:-}" ]]; then
+          CMD_ARGS+=(--repository "$AUTOPUB_PUBLISH_REPOSITORY")
         fi
 
         echo "::group::Running autopub $AUTOPUB_COMMAND"
-        echo "Command: $UVX_CMD $AUTOPUB_COMMAND $CMD_ARGS"
+        echo "Command: ${UVX_CMD[*]} $AUTOPUB_COMMAND ${CMD_ARGS[*]}"
 
         # Run the command and capture exit code
         set +e
-        $UVX_CMD $AUTOPUB_COMMAND $CMD_ARGS
+        "${UVX_CMD[@]}" "$AUTOPUB_COMMAND" "${CMD_ARGS[@]}"
         EXIT_CODE=$?
         set -e
 

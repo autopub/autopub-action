@@ -92,6 +92,9 @@ jobs:
           - test: full-flow
             has-release: "true"
             release-type: minor
+          - test: extra-plugins
+            has-release: "true"
+            release-type: patch
     steps:
       - uses: actions/checkout@v4
 
@@ -115,7 +118,7 @@ jobs:
           echo '__version__ = "0.1.0"' > src/test_package/__init__.py
 
       - name: Create RELEASE.md (for release tests)
-        if: matrix.test == 'check-with-release' || matrix.test == 'full-flow'
+        if: matrix.test == 'check-with-release' || matrix.test == 'full-flow' || matrix.test == 'extra-plugins'
         run: |
           cat > RELEASE.md << 'EOF'
           ---
@@ -132,6 +135,16 @@ jobs:
         with:
           command: check
           autopub-version: pre-release
+          upload-artifact: "false"
+
+      - name: Run check with extra-plugins
+        if: matrix.test == 'extra-plugins'
+        id: check-extra-plugins
+        uses: ./
+        with:
+          command: check
+          autopub-version: pre-release
+          extra-plugins: "requests"
           upload-artifact: "false"
 
       - name: Run prepare command (full-flow)
@@ -189,6 +202,18 @@ jobs:
           fi
           if [[ "${{ steps.check.outputs.release-type }}" != "${{ matrix.release-type }}" ]]; then
             echo "::error::Expected release-type to be '${{ matrix.release-type }}'"
+            exit 1
+          fi
+
+      - name: Verify outputs (extra-plugins)
+        if: matrix.test == 'extra-plugins'
+        run: |
+          if [[ "${{ steps.check-extra-plugins.outputs.has-release }}" != "true" ]]; then
+            echo "::error::Expected has-release to be 'true' with extra-plugins"
+            exit 1
+          fi
+          if [[ "${{ steps.check-extra-plugins.outputs.release-type }}" != "patch" ]]; then
+            echo "::error::Expected release-type to be 'patch' with extra-plugins"
             exit 1
           fi
 

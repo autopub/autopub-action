@@ -119,7 +119,7 @@ jobs:
 | `autopub-version` | No | `latest` | Autopub version: `latest`, `pre-release`, or specific version |
 | `git-username` | No | `autopub` | Git username for release commits |
 | `git-email` | No | `autopub@autopub` | Git email for release commits |
-| `extra-plugins` | No | - | Additional plugins to load (comma-separated) |
+| `extra-plugins` | No | - | Additional Python packages to install for plugins (pip specs, comma or multiline) |
 | `upload-artifact` | No | `true` | Auto-upload `.autopub` artifact after check |
 | `download-artifact` | No | `true` | Auto-download `.autopub` artifact before other commands |
 | `artifact-name` | No | `autopub-data` | Name for the artifact |
@@ -404,6 +404,48 @@ To enforce that all PRs include a `RELEASE.md` file:
 ```
 
 This will fail the workflow if no valid `RELEASE.md` is found, useful for PR checks.
+
+### Using Extra Plugins
+
+Install additional autopub plugins using the `extra-plugins` input. Each entry is passed as
+a `--with` argument to `uvx`, so full pip dependency specs are supported.
+
+**Simple plugin names (comma-separated):**
+
+```yaml
+- uses: autopub/autopub-action@v1
+  with:
+    command: check
+    extra-plugins: "my-autopub-plugin,another-plugin"
+```
+
+**Complex pip specs (multiline):**
+
+```yaml
+- uses: autopub/autopub-action@v1
+  with:
+    command: check
+    extra-plugins: |
+      strawberry-autopub-plugins @ git+https://github.com/org/repo.git@main
+      another-plugin>=1.0.0
+```
+
+**Plugin environment variables:**
+
+Plugins that need configuration via environment variables (e.g. API keys) can receive them
+through the `env` block on the action step:
+
+```yaml
+- uses: autopub/autopub-action@v1
+  env:
+    TYPEFULLY_API_KEY: ${{ secrets.TYPEFULLY_API_KEY }}
+  with:
+    command: publish
+    extra-plugins: "strawberry-autopub-plugins"
+```
+
+Environment variables set at the step, job, or workflow level are all available to plugins
+running inside the action.
 
 ## Troubleshooting
 
