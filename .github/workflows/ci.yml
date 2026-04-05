@@ -92,6 +92,7 @@ jobs:
           - test: full-flow
             has-release: "true"
             release-type: minor
+          - test: extra-plugins
     steps:
       - uses: actions/checkout@v6
 
@@ -132,6 +133,18 @@ jobs:
         with:
           command: check
           autopub-version: pre-release
+          upload-artifact: "false"
+
+      - name: Run check with extra-plugins (invalid package proves --with is wired)
+        if: matrix.test == 'extra-plugins'
+        id: check-extra-plugins
+        continue-on-error: true
+        uses: ./
+        with:
+          command: check
+          autopub-version: pre-release
+          extra-plugins: "not-a-real-autopub-plugin-for-ci"
+          fail-on-missing: "true"
           upload-artifact: "false"
 
       - name: Run prepare command (full-flow)
@@ -189,6 +202,14 @@ jobs:
           fi
           if [[ "${{ steps.check.outputs.release-type }}" != "${{ matrix.release-type }}" ]]; then
             echo "::error::Expected release-type to be '${{ matrix.release-type }}'"
+            exit 1
+          fi
+
+      - name: Verify extra-plugins is wired into execution
+        if: matrix.test == 'extra-plugins'
+        run: |
+          if [[ "${{ steps.check-extra-plugins.outcome }}" != "failure" ]]; then
+            echo "::error::Expected failure when installing a non-existent extra plugin package"
             exit 1
           fi
 
