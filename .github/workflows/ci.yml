@@ -83,8 +83,10 @@ jobs:
           - test: check-with-release
             has-release: "true"
             release-type: patch
+            upload_artifact: "false"
           - test: check-no-release
             has-release: "false"
+            upload_artifact: "true"
           - test: check-fail-on-missing
             should-fail: true
           - test: invalid-command
@@ -92,6 +94,7 @@ jobs:
           - test: full-flow
             has-release: "true"
             release-type: minor
+            upload_artifact: "false"
           - test: extra-plugins
     steps:
       - uses: actions/checkout@v6
@@ -133,7 +136,7 @@ jobs:
         with:
           command: check
           autopub-version: pre-release
-          upload-artifact: "false"
+          upload-artifact: ${{ matrix.upload_artifact || 'false' }}
 
       - name: Run check with extra-plugins (invalid package proves --with is wired)
         if: matrix.test == 'extra-plugins'

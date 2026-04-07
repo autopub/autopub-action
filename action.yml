@@ -212,9 +212,12 @@ runs:
 
         echo "::endgroup::"
 
-        # Handle check command specially - it may fail if no RELEASE.md
+        # Handle check command specially.
+        # Presence of the release info artifact is the reliable signal that a valid
+        # release file was found. Recent autopub versions can exit 0 even when no
+        # RELEASE.md is present, so exit code alone is not enough here.
         if [[ "$AUTOPUB_COMMAND" == "check" ]]; then
-          if [[ $EXIT_CODE -eq 0 ]]; then
+          if [[ -f ".autopub/release_info.json" ]]; then
             echo "has_release=true" >> $GITHUB_OUTPUT
             echo "::notice::Valid RELEASE.md found"
           else
